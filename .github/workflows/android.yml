@@ -1,0 +1,59 @@
+name: Build & Release GrowModder
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Pozwala odpalić budowanie ręcznie
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 --decode > app/release.jks
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Get Version & Date
+        id: vars
+        run: |
+          echo "DATE=$(date +'%Y%m%d_%H%M')" >> $GITHUB_OUTPUT
+          echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrowModder-${{ steps.vars.outputs.DATE }}
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Create Nightly Release
+        if: github.ref == 'refs/heads/main'
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          cp "$APK_PATH" "GrowModder_signed.apk"
+          gh release delete nightly --yes || true
+          gh release create nightly "GrowModder_signed.apk" \
+            --prerelease \
+            --title "Build ${{ steps.vars.outputs.DATE }}" \
+            --notes "Automated build from commit ${{ steps.vars.outputs.SHA }}. Ten build jest podpisany Twoim kluczem."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

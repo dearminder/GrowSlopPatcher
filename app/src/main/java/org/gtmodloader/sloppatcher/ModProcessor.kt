@@ -101,7 +101,15 @@ object ModProcessor {
                     val manifestBlock = com.reandroid.arsc.chunk.xml.AndroidManifestBlock()
                     manifestBlock.readBytes(ByteArrayInputStream(bytes))
                     manifestBlock.packageName = targetPackageName
-
+                    
+                        // Force native library extraction to prevent alignment errors
+                   val applicationElement = manifestBlock.applicationElement
+                   if (applicationElement != null) {
+                           // 0x0101048b is the resource ID for android:extractNativeLibs
+                   val attr = applicationElement.getOrCreateAttribute(com.reandroid.arsc.model.ResourceEntry.NAME_extractNativeLibs, 0x0101048b)
+                          attr.setBoolValue(true)
+                    }
+                    
                     // 2. Deep-patch the XML String Pool (Simulates what Apktool does)
                     val xmlPool = manifestBlock.stringPool
                     for (i in 0 until xmlPool.count()) {
@@ -336,7 +344,7 @@ object ModProcessor {
                     ?: throw Exception("Cannot read .so file")
 
                 val soEntry = ZipArchiveEntry("lib/arm64-v8a/$soFileName")
-                soEntry.method = ZipArchiveEntry.STORED
+                soEntry.method = ZipArchiveEntry.DEFLATED
                 soEntry.size = soBytes.size.toLong()
                 soEntry.unixMode = 493 // 0755
                 soEntry.setAlignment(4)
