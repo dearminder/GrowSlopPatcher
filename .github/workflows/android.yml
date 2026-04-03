@@ -3,7 +3,7 @@ name: Build & Release GrowModder
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Pozwala odpalić budowanie ręcznie
+  workflow_dispatch:
 
 jobs:
   build:
@@ -28,7 +28,7 @@ jobs:
       - name: Build Release APK
         run: ./gradlew assembleRelease
         env:
-          KEYSTORE_PATH: release.jks
+          KEYSTORE_PATH: app/release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -52,6 +52,7 @@ jobs:
           cp "$APK_PATH" "GrowModder_signed.apk"
           gh release delete nightly --yes || true
           gh release create nightly "GrowModder_signed.apk" \
+            --tag nightly \
             --prerelease \
             --title "Build ${{ steps.vars.outputs.DATE }}" \
             --notes "Automated build from commit ${{ steps.vars.outputs.SHA }}. Ten build jest podpisany Twoim kluczem."
