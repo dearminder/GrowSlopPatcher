@@ -17,9 +17,9 @@ import org.jf.dexlib2.Opcodes
 import org.jf.smali.Smali
 import org.jf.smali.SmaliOptions
 import com.reandroid.arsc.chunk.TableBlock
-import com.reandroid.arsc.model.ResourceEntry
-import com.reandroid.xml.XMLDocument
-import com.reandroid.xml.XMLElement
+import com.reandroid.arsc.chunk.xml.AndroidManifestBlock
+import com.reandroid.arsc.chunk.xml.ResXmlAttribute
+import com.reandroid.arsc.chunk.xml.ResXmlElement
 import java.io.*
 import java.math.BigInteger
 import java.security.*
@@ -98,19 +98,24 @@ object ModProcessor {
                 // 2. Patch Package Name (Binary AndroidManifest.xml)
                 binaryManifest?.let { bytes ->
                     onProgress("Patching Manifest String Pool...")
-                    val manifestBlock = com.reandroid.arsc.chunk.xml.AndroidManifestBlock()
+                    val manifestBlock = AndroidManifestBlock()
                     manifestBlock.readBytes(ByteArrayInputStream(bytes))
                     manifestBlock.packageName = targetPackageName
-                    
-                        // Force native library extraction to prevent alignment errors
-                   val applicationElement = manifestBlock.applicationElement
-                   if (applicationElement != null) {
-                           // 0x0101048b is the resource ID for android:extractNativeLibs
-                   val attr = applicationElement.getOrCreateAttribute(com.reandroid.arsc.model.ResourceEntry.NAME_extractNativeLibs, 0x0101048b)
-                          attr.setBoolValue(true)
+
+                    // Force extractNativeLibs=true via ResXmlAttribute API
+                    // Resource ID 0x0101048b = android:extractNativeLibs
+                    val applicationElement = manifestBlock.applicationElement
+                    if (applicationElement != null) {
+                        val ATTR_EXTRACT_NATIVE_LIBS = 0x0101048b
+                        var attr = applicationElement.searchAttributeByResourceId(ATTR_EXTRACT_NATIVE_LIBS)
+                        if (attr == null) {
+                            attr = applicationElement.createAndroidAttribute("extractNativeLibs", ATTR_EXTRACT_NATIVE_LIBS)
+                        }
+                        // TYPE_INT_BOOLEAN = 0x12, true = 0xFFFFFFFF (-1)
+                        attr.setTypeAndData(0x12, -1)
                     }
-                    
-                    // 2. Deep-patch the XML String Pool (Simulates what Apktool does)
+
+                    // Deep-patch the XML String Pool
                     val xmlPool = manifestBlock.stringPool
                     for (i in 0 until xmlPool.count()) {
                         val item = xmlPool.get(i)
@@ -119,7 +124,6 @@ object ModProcessor {
                         }
                     }
 
-                    // 3. Force a full rebuild of the binary structure
                     manifestBlock.refresh()
                     binaryManifest = manifestBlock.getBytes()
                 }
@@ -133,7 +137,6 @@ object ModProcessor {
                     val pool = tableBlock.tableStringPool
                     var found = false
 
-                    // Manually iterate through the pool using its size
                     for (i in 0 until pool.count()) {
                         val item = pool.get(i)
                         if (item?.get() == "Growtopia") {
@@ -150,7 +153,6 @@ object ModProcessor {
 
                     binaryResources = tableBlock.getBytes()
                 }
-
 
                 // 4. Extract classes.dex
                 onProgress("Extracting classes.dex...")
@@ -199,10 +201,11 @@ object ModProcessor {
                     } else {
                         onProgress("Main.smali already patched, skipping.")
                     }
-                    if (content.contains("const-string v0, \"com.rtsoft.growtopia\""))
-                    {
-                        content = content.replace("const-string v0, \"com.rtsoft.growtopia\"",
-                                "const-string v0, \"$targetPackageName\"");
+                    if (content.contains("const-string v0, \"com.rtsoft.growtopia\"")) {
+                        content = content.replace(
+                            "const-string v0, \"com.rtsoft.growtopia\"",
+                            "const-string v0, \"$targetPackageName\""
+                        )
                     }
                     mainSmaliFile.writeText(content)
                 } else {
@@ -212,19 +215,24 @@ object ModProcessor {
                 val buildConfigSmali = File(smaliDir, "com/rtsoft/growtopia/BuildConfig.smali")
                 if (buildConfigSmali.exists()) {
                     var content = buildConfigSmali.readText()
-                    if (!content.contains(".field public static final APPLICATION_ID:Ljava/lang/String; = \"com.rtsoft.growtopia\"")) {
-                        content = content.replace(".field public static final APPLICATION_ID:Ljava/lang/String; = \"com.rtsoft.growtopia\"",
-                            ".field public static final APPLICATION_ID:Ljava/lang/String; = \"$targetPackageName\"")
-                        buildConfigSmali.writeText(content);
+                    if (content.contains(".field public static final APPLICATION_ID:Ljava/lang/String; = \"com.rtsoft.growtopia\"")) {
+                        content = content.replace(
+                            ".field public static final APPLICATION_ID:Ljava/lang/String; = \"com.rtsoft.growtopia\"",
+                            ".field public static final APPLICATION_ID:Ljava/lang/String; = \"$targetPackageName\""
+                        )
+                        buildConfigSmali.writeText(content)
                     }
                 }
+
                 val sharedActivitySmali = File(smaliDir, "com/rtsoft/growtopia/SharedActivity.smali")
                 if (sharedActivitySmali.exists()) {
                     var content = sharedActivitySmali.readText()
-                    if (!content.contains("public static PackageName:Ljava/lang/String; = \"com.rtsoft.growtopia\"")) {
-                        content = content.replace("public static PackageName:Ljava/lang/String; = \"com.rtsoft.growtopia\"",
-                            "public static PackageName:Ljava/lang/String; = \"$targetPackageName\"")
-                        sharedActivitySmali.writeText(content);
+                    if (content.contains("public static PackageName:Ljava/lang/String; = \"com.rtsoft.growtopia\"")) {
+                        content = content.replace(
+                            "public static PackageName:Ljava/lang/String; = \"com.rtsoft.growtopia\"",
+                            "public static PackageName:Ljava/lang/String; = \"$targetPackageName\""
+                        )
+                        sharedActivitySmali.writeText(content)
                     }
                 }
 
@@ -248,10 +256,8 @@ object ModProcessor {
                     }
                 }
 
-                val iconTargetName = "icon.png" // Standard icon name
+                val iconTargetName = "icon.png"
                 val zos = ZipArchiveOutputStream(BufferedOutputStream(FileOutputStream(outputApk)))
-
-                // Open the original APK as a ZipFile to preserve permissions/attributes
                 val zipFile = ZipFile(originalApk)
                 val entries = zipFile.entries
 
@@ -259,26 +265,20 @@ object ModProcessor {
                     val entry = entries.nextElement()
                     val name = entry.name
 
-                    // Skip files we are replacing
                     val isIcon = userIconBitmap != null && name.contains("res/mipmap") && name.endsWith(iconTargetName)
                     if (name == "classes.dex" || name.startsWith("META-INF/") || isIcon) continue
                     if (name == "AndroidManifest.xml") continue
                     if (name == "resources.arsc" && appName != "Growtopia") continue
 
-                    // Clone entry and preserve Unix attributes
                     val newEntry = ZipArchiveEntry(entry)
 
-                    // Ensure .so files and directories have executable permissions (0755)
                     if (name.endsWith(".so") || entry.isDirectory) {
-                        // Skip our library if it already exists
-                        if (name.endsWith(soFileName))
-                            continue
-                        newEntry.unixMode = 493 // Octal 0755
+                        if (name.endsWith(soFileName)) continue
+                        newEntry.unixMode = 493 // 0755
                     } else {
-                        newEntry.unixMode = 420 // Octal 0644
+                        newEntry.unixMode = 420 // 0644
                     }
 
-                    // Handle alignment for STORED files (zipalign requirement)
                     if (newEntry.method == ZipArchiveEntry.STORED) {
                         newEntry.setAlignment(4)
                     }
@@ -312,8 +312,8 @@ object ModProcessor {
                     }
                 }
 
-                // Add modified manifest and strings if applicable
-                if (targetPackageName?.isNotEmpty() == true) {
+                // Add modified AndroidManifest.xml
+                if (targetPackageName.isNotEmpty()) {
                     val manifestEntry = ZipArchiveEntry("AndroidManifest.xml")
                     manifestEntry.unixMode = 420
                     manifestEntry.method = ZipArchiveEntry.DEFLATED
@@ -322,6 +322,8 @@ object ModProcessor {
                     zos.write(binaryManifest)
                     zos.closeArchiveEntry()
                 }
+
+                // Add modified resources.arsc
                 if (appName != "Growtopia") {
                     val arscEntry = ZipArchiveEntry("resources.arsc")
                     arscEntry.unixMode = 420
@@ -344,17 +346,16 @@ object ModProcessor {
                     ?: throw Exception("Cannot read .so file")
 
                 val soEntry = ZipArchiveEntry("lib/arm64-v8a/$soFileName")
-                soEntry.method = ZipArchiveEntry.DEFLATED
+                soEntry.method = ZipArchiveEntry.STORED
                 soEntry.size = soBytes.size.toLong()
                 soEntry.unixMode = 493 // 0755
                 soEntry.setAlignment(4)
 
-                // Calculate CRC
                 val crc = CRC32().apply { update(soBytes) }
                 soEntry.crc = crc.value
 
                 zos.putArchiveEntry(soEntry)
-                zos.write(soBytes) // Write the bytes directly instead of reopening a stream
+                zos.write(soBytes)
                 zos.closeArchiveEntry()
 
                 zipFile.close()
@@ -400,13 +401,11 @@ object ModProcessor {
     }
 
     private fun generateAndSaveKey(file: File): Pair<PrivateKey, X509Certificate> {
-        // 1. Generate KeyPair and Certificate
         val keyPairGen = KeyPairGenerator.getInstance("RSA", "BC")
         keyPairGen.initialize(2048)
         val keyPair = keyPairGen.generateKeyPair()
         val cert = generateCertificate(keyPair)
 
-        // 2. Create and Save Keystore
         val keyStore = KeyStore.getInstance("PKCS12")
         keyStore.load(null, null)
         keyStore.setKeyEntry("growmodder", keyPair.private, "insecure!".toCharArray(), arrayOf(cert))
