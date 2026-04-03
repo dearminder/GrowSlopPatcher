@@ -112,7 +112,8 @@ object ModProcessor {
                             attr = applicationElement.createAndroidAttribute("extractNativeLibs", ATTR_EXTRACT_NATIVE_LIBS)
                         }
                         // TYPE_INT_BOOLEAN = 0x12, true = 0xFFFFFFFF (-1)
-                        attr.setTypeAndData(0x12, -1)
+                        attr.setValueType(com.reandroid.arsc.value.ValueType.fromByte(0x12))
+                        attr.setData(-1)
                     }
 
                     // Deep-patch the XML String Pool
