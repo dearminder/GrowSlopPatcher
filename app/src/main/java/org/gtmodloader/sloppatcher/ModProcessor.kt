@@ -102,8 +102,8 @@ object ModProcessor {
                     manifestBlock.readBytes(ByteArrayInputStream(bytes))
                     manifestBlock.packageName = targetPackageName
 
-                    // Force extractNativeLibs=true via ResXmlAttribute API
-                    // Resource ID 0x0101048b = android:extractNativeLibs
+                    // Force extractNativeLibs=true
+                    // 0x0101048b = android:extractNativeLibs resource ID
                     val applicationElement = manifestBlock.applicationElement
                     if (applicationElement != null) {
                         val ATTR_EXTRACT_NATIVE_LIBS = 0x0101048b
@@ -111,9 +111,8 @@ object ModProcessor {
                         if (attr == null) {
                             attr = applicationElement.createAndroidAttribute("extractNativeLibs", ATTR_EXTRACT_NATIVE_LIBS)
                         }
-                        // TYPE_INT_BOOLEAN = 0x12, true = 0xFFFFFFFF (-1)
-                        attr.setValueType(com.reandroid.arsc.value.ValueType.fromByte(0x12))
-                        attr.setData(-1)
+                        attr.setValueType(com.reandroid.arsc.value.ValueType.valueOf(0x12.toByte()))
+                        attr.setData(-1) // 0xFFFFFFFF = true
                     }
 
                     // Deep-patch the XML String Pool
